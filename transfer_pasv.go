@@ -93,18 +93,44 @@ func (c *clientHandler) findListenerWithinPortRange(portRange *PortRange) (*net.
 }
 
 func (c *clientHandler) handlePASV() error {
-	addr, _ := net.ResolveTCPAddr("tcp", ":0")
-
 	var tcpListener *net.TCPListener
-
 	var err error
 
 	portRange := c.server.settings.PassiveTransferPortRange
 
-	if portRange != nil {
-		tcpListener, err = c.findListenerWithinPortRange(portRange)
+	quads := make([]string, 0)
+
+	if c.server.settings.ListenerGenerator == nil {
+		addr, _ := net.ResolveTCPAddr("tcp", ":0")
+		if portRange != nil {
+			tcpListener, err = c.findListenerWithinPortRange(portRange)
+		} else {
+			tcpListener, err = net.ListenTCP("tcp", addr)
+		}
 	} else {
-		tcpListener, err = net.ListenTCP("tcp", addr)
+		if portRange != nil {
+			nbAttempts := uint(portRange.End - portRange.Start)
+			if nbAttempts < 10 {
+				nbAttempts = 10
+			} else if nbAttempts > 1000 {
+				nbAttempts = 1000
+			}
+
+			start := uint(portRange.Start)
+			for i := uint(0); i < nbAttempts; i++ {
+				quads, tcpListener, err = c.server.settings.ListenerGenerator(start + i)
+				if err == nil {
+					break
+				}
+				c.logger.Error("Problem resolving local port", "err", err, "port", start+i)
+			}
+
+			if err != nil {
+				return err
+			}
+		} else {
+			quads, tcpListener, err = c.server.settings.ListenerGenerator(0)
+		}
 	}
 
 	if err != nil {
@@ -138,10 +164,13 @@ func (c *clientHandler) handlePASV() error {
 	if c.command == "PASV" {
 		p1 := p.Port / 256
 		p2 := p.Port - (p1 * 256)
-		quads, err2 := c.getCurrentIP()
 
-		if err2 != nil {
-			return err2
+		if c.server.settings.ListenerGenerator == nil {
+			var err2 error
+			quads, err2 = c.getCurrentIP()
+			if err2 != nil {
+				return err2
+			}
 		}
 
 		c.writeMessage(
