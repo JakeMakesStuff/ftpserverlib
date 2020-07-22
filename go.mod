@@ -1,4 +1,4 @@
-module github.com/fclairamb/ftpserverlib
+module github.com/jakemakesstuff/ftpserverlib
 
 require (
 	github.com/go-kit/kit v0.10.0
